@@ -1,3 +1,5 @@
+// RMC14
+using System.Linq;
 using Content.Client._RMC14.Chat;
 using Content.Client.Guidebook.RichText;
 using Content.Client.UserInterface.Systems.Chat.Controls;
@@ -34,7 +36,9 @@ public partial class ChatBox : UIWidget, ILinkClickHandler
 
     // RMC14
     public readonly Queue<RepeatedMessage> RepeatQueue = new();
-    private readonly HashSet<string> _whitelist = ["mono", "scramble", "bolditalic", "bold", "bullet", "color", "font", "head", "italic"];
+    // RMC14
+    private readonly HashSet<string> _whitelist = ["mono", "scramble", "bolditalic", "bold", "bullet", "color", "font", "head", "italic", "langicon"];
+    // RMC14
 
     public ChatBox()
     {
@@ -75,7 +79,9 @@ public partial class ChatBox : UIWidget, ILinkClickHandler
 
         var color = msg.MessageColorOverride ?? msg.Channel.TextColor();
 
-        AddLine(msg.WrappedMessage, color, msg.SenderEntity, msg.Message, msg.Channel, msg.RepeatCheckSender);
+        // RMC14
+        AddLine(msg.WrappedMessage, color, msg.SenderEntity, msg.Message, msg.Channel, msg.RepeatCheckSender, msg.LanguageIcon);
+        // RMC14
     }
 
     private void OnHighlightsUpdated(string highlights)
@@ -118,10 +124,23 @@ public partial class ChatBox : UIWidget, ILinkClickHandler
         _controller.UpdateHighlights(highlighs);
     }
 
-    public void AddLine(string message, Color color, NetEntity sender, string unwrapped, ChatChannel channel, bool repeatCheckSender)
+    // RMC14
+    public void AddLine(
+        string message,
+        Color color,
+        NetEntity sender,
+        string unwrapped,
+        ChatChannel channel,
+        bool repeatCheckSender,
+        string? languageIcon = null)
+    // RMC14
     {
         var formatted = new FormattedMessage(3);
         formatted.PushColor(color);
+        // RMC14
+        if (!string.IsNullOrWhiteSpace(languageIcon))
+            formatted.AddMarkupOrThrow($"[langicon language=\"{FormattedMessage.EscapeText(languageIcon)}\"][/langicon]");
+        // RMC14
         formatted.AddMarkupOrThrow(message);
         formatted.Pop();
 
@@ -129,10 +148,14 @@ public partial class ChatBox : UIWidget, ILinkClickHandler
         // otherwise fall back to the original FilterProblematicTags so non-RMC channels are unaffected.
         var rmcChat = _entManager.SystemOrNull<CMChatSystem>();
         formatted = rmcChat?.FilterTagsIfNeeded(channel, formatted) ?? FilterProblematicTags(formatted);
-        if (rmcChat?.TryRepetition(this, Contents, formatted, sender, unwrapped, channel, repeatCheckSender) ?? false)
+        if (rmcChat?.TryRepetition(this, Contents, formatted, sender, unwrapped, channel, repeatCheckSender, languageIcon) ?? false)
             return;
 
         Contents.AddMessage(formatted);
+
+        // RMC14
+        if (!string.IsNullOrWhiteSpace(languageIcon) && RepeatQueue.Count > 0)
+            RepeatQueue.Last().IconControl = Contents.Children.OfType<LanguageIconTag.LanguageIconControl>().LastOrDefault();
     }
 
     //RMC14
@@ -152,6 +175,7 @@ public partial class ChatBox : UIWidget, ILinkClickHandler
         }
         return output;
     }
+    // RMC14
 
     public void Focus(ChatSelectChannel? channel = null)
     {

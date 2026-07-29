@@ -1,4 +1,5 @@
 using Content.Client._RMC14.Chat;
+using Content.Client.Guidebook.RichText;
 using Content.Client.UserInterface.Systems.Chat.Controls;
 using Content.Shared.Chat;
 using Content.Shared.Input;
@@ -10,6 +11,7 @@ using Robust.Client.UserInterface.Controls;
 using Robust.Client.UserInterface.XAML;
 using Robust.Shared.Audio;
 using Robust.Shared.Input;
+using Robust.Shared.Network;
 using Robust.Shared.Player;
 using Robust.Shared.Utility;
 using static Robust.Client.UserInterface.Controls.LineEdit;
@@ -18,7 +20,7 @@ namespace Content.Client.UserInterface.Systems.Chat.Widgets;
 
 [GenerateTypedNameReferences]
 [Virtual]
-public partial class ChatBox : UIWidget
+public partial class ChatBox : UIWidget, ILinkClickHandler
 {
     [Dependency] private readonly IEntityManager _entManager = default!;
     [Dependency] private readonly ILogManager _log = default!;
@@ -123,12 +125,20 @@ public partial class ChatBox : UIWidget
         formatted.AddMarkupOrThrow(message);
         formatted.Pop();
 
-        // RMC14
-        formatted = FilterProblematicTags(formatted);
-        if (_entManager.SystemOrNull<CMChatSystem>()?.TryRepetition(this, Contents, formatted, sender, unwrapped, channel, repeatCheckSender) ?? false)
+        // RMC14 - use CMChatSystem's channel-scoped filter for channels that may carry action links (e.g. textlink);
+        // otherwise fall back to the original FilterProblematicTags so non-RMC channels are unaffected.
+        var rmcChat = _entManager.SystemOrNull<CMChatSystem>();
+        formatted = rmcChat?.FilterTagsIfNeeded(channel, formatted) ?? FilterProblematicTags(formatted);
+        if (rmcChat?.TryRepetition(this, Contents, formatted, sender, unwrapped, channel, repeatCheckSender) ?? false)
             return;
 
         Contents.AddMessage(formatted);
+    }
+
+    //RMC14
+    public void HandleClick(string link)
+    {
+        _entManager.SystemOrNull<CMChatSystem>()?.HandleChatLinkClick(link);
     }
 
     // RMC14

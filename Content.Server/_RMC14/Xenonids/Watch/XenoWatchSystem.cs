@@ -1,5 +1,6 @@
 ﻿using Content.Server.Chat.Systems;
 using Content.Server.Popups;
+using Content.Shared._RMC14.ChatLinks;
 using Content.Shared._RMC14.Xenonids;
 using Content.Shared._RMC14.Xenonids.Evolution;
 using Content.Shared._RMC14.Xenonids.Hive;
@@ -42,6 +43,7 @@ public sealed class XenoWatchSystem : SharedXenoWatchSystem
         SubscribeLocalEvent<XenoWatchingComponent, EntityTerminatingEvent>(OnWatchingRemove);
 
         SubscribeLocalEvent<ExpandICChatRecipientsEvent>(OnExpandRecipients);
+        SubscribeLocalEvent<RMCChatActionLinkClickedEvent>(OnWatchChatLinkClicked);
     }
 
     private void OnWatchedRemove<T>(Entity<XenoWatchedComponent> ent, ref T args)
@@ -96,11 +98,60 @@ public sealed class XenoWatchSystem : SharedXenoWatchSystem
         }
     }
 
+    private void OnWatchChatLinkClicked(RMCChatActionLinkClickedEvent args)
+    {
+        if (!args.ActionId.StartsWith(RMCChatActionLinkConstants.WatchXenoPrefix, StringComparison.Ordinal))
+            return;
+
+        var user = args.User;
+
+        if (!TryComp(user, out XenoComponent? _) || !TryComp(user, out HiveMemberComponent? userMember))
+            return;
+
+        if (!EntityManager.TryGetEntity(args.Target, out var targetNullable) || targetNullable is not { } target || TerminatingOrDeleted(target))
+            return;
+
+        if (!TryComp(target, out HiveMemberComponent? targetMember) || !TryComp(target, out XenoComponent? _))
+            return;
+
+        TryComp(user, out ActorComponent? actor);
+        TryComp(user, out EyeComponent? eye);
+
+        var watcher = new Entity<HiveMemberComponent?, ActorComponent?, EyeComponent?>(user, userMember, actor, eye);
+        var toWatch = new Entity<HiveMemberComponent?>(target, targetMember);
+        TryWatch(watcher, toWatch, requireQueen: false);
+    }
+
+    private void TryWatch(Entity<HiveMemberComponent?, ActorComponent?, EyeComponent?> watcher, Entity<HiveMemberComponent?> toWatch, bool requireQueen)
+    {
+        if (requireQueen && !HasQueenPopup(watcher))
+            return;
+
+        if (watcher.Owner == toWatch.Owner)
+            return;
+
+        if (!_hive.FromSameHive((watcher, watcher.Comp1), toWatch))
+            return;
+
+        if (!Resolve(watcher, ref watcher.Comp2, false))
+            return;
+
+        _eye.SetTarget(watcher, toWatch, watcher);
+        _viewSubscriber.AddViewSubscriber(toWatch, watcher.Comp2.PlayerSession);
+
+        RemoveWatcher(watcher);
+        EnsureComp<XenoWatchingComponent>(watcher).Watching = toWatch;
+        EnsureComp<XenoWatchedComponent>(toWatch).Watching.Add(watcher);
+
+        var ev = new XenoWatchEvent();
+        RaiseLocalEvent(watcher, ref ev);
+    }
+
     protected override void OnXenoWatchAction(Entity<XenoComponent> ent, ref XenoWatchActionEvent args)
     {
         args.Handled = true;
 
-        if (_hive.GetHive(ent.Owner) is not {} hive)
+        if (_hive.GetHive(ent.Owner) is not { } hive)
             return;
 
         if (!HasQueenPopup(ent))
@@ -130,28 +181,7 @@ public sealed class XenoWatchSystem : SharedXenoWatchSystem
     public override void Watch(Entity<HiveMemberComponent?, ActorComponent?, EyeComponent?> watcher, Entity<HiveMemberComponent?> toWatch)
     {
         base.Watch(watcher, toWatch);
-
-        if (!HasQueenPopup(watcher))
-            return;
-
-        if (watcher.Owner == toWatch.Owner)
-            return;
-
-        if (!_hive.FromSameHive((watcher, watcher.Comp1), toWatch))
-            return;
-
-        if (!Resolve(watcher, ref watcher.Comp2, false))
-            return;
-
-        _eye.SetTarget(watcher, toWatch, watcher);
-        _viewSubscriber.AddViewSubscriber(toWatch, watcher.Comp2.PlayerSession);
-
-        RemoveWatcher(watcher);
-        EnsureComp<XenoWatchingComponent>(watcher).Watching = toWatch;
-        EnsureComp<XenoWatchedComponent>(toWatch).Watching.Add(watcher);
-
-        var ev = new XenoWatchEvent();
-        RaiseLocalEvent(watcher, ref ev);
+        TryWatch(watcher, toWatch, requireQueen: true);
     }
 
     public override void Unwatch(Entity<EyeComponent?> watcher, ICommonSession player)

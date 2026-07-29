@@ -160,6 +160,11 @@ public sealed class RadioSystem : EntitySystem
             ("name", name),
             ("message", content));
 
+        // RMC14 - raise event so modular systems can append postfixes (e.g. chat action links)
+        var rmcWrappedEv = new RMCWrappedRadioMessageEvent(messageSource, channel, wrappedMessage, name);
+        RaiseLocalEvent(ref rmcWrappedEv);
+        wrappedMessage = rmcWrappedEv.WrappedMessage;
+
         // most radios are relayed to chat, so lets parse the chat message beforehand
         var chat = new ChatMessage(
             ChatChannel.Radio,
